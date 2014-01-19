@@ -34,6 +34,9 @@ class LocaleMiddleware(object):
             request, check_path=check_path)
         translation.activate(language)
         request.LANGUAGE_CODE = translation.get_language()
+        content_language = translation.get_content_language_from_request(
+            request, check_path=check_path)
+        translation.activate_content(content_language)
 
     def process_response(self, request, response):
         language = translation.get_language()

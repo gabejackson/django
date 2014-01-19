@@ -31,7 +31,7 @@ from django.utils.translation import (activate, deactivate,
     ungettext_lazy,
     pgettext,
     npgettext, npgettext_lazy,
-    check_for_language)
+    check_for_language, get_content_language_from_request, get_content_language, activate_content)
 
 from .forms import I18nForm, SelectDateForm, SelectDateWidget, CompanyForm
 from .models import Company, TestModel
@@ -1247,6 +1247,10 @@ class LocaleMiddlewareTests(TransRealMixin, TestCase):
 
     urls = 'i18n.urls'
 
+    def setUp(self):
+        super(LocaleMiddlewareTests, self).setUp()
+        self.rf = RequestFactory()
+
     def test_streaming_response(self):
         # Regression test for #5241
         response = self.client.get('/fr/streaming/')
@@ -1267,6 +1271,37 @@ class LocaleMiddlewareTests(TransRealMixin, TestCase):
         # Regression test for #21473
         self.client.get('/fr/simple/')
         self.assertNotIn('_language', self.client.session)
+
+    def test_set_content_language(self):
+        r = self.rf.get('/')
+        r.COOKIES = {}
+        r.META = {'HTTP_ACCEPT_LANGUAGE': 'en-US,en;q=0.8,bg;q=0.6,ru;q=0.4'}
+        r.GET = {'content_lang': 'fr'}
+        lang = get_language_from_request(r)
+        content_lang = get_content_language_from_request(r)
+        self.assertEqual('en', lang)
+        self.assertEqual('fr', content_lang)
+
+    def test_get_content_language_from_request(self):
+        r = self.rf.get('/')
+        r.COOKIES = {}
+        r.META = {'HTTP_ACCEPT_LANGUAGE': 'en-US,en;q=0.8,bg;q=0.6,ru;q=0.4'}
+        lang = get_language_from_request(r)
+        content_lang = get_content_language_from_request(r)
+        self.assertEqual('en', lang)
+        self.assertEqual('en', content_lang)
+
+    def test_invalid_content_language_from_request(self):
+        """Checks that content language falls back to language if it is
+        invalid."""
+        r = self.rf.get('/')
+        r.COOKIES = {}
+        r.META = {'HTTP_ACCEPT_LANGUAGE': 'en-US,en;q=0.8,bg;q=0.6,ru;q=0.4'}
+        r.GET = {'content_lang': 'djangolingua'}
+        lang = get_language_from_request(r)
+        content_lang = get_content_language_from_request(r)
+        self.assertEqual('en', lang)
+        self.assertEqual('en', content_lang)
 
 
 @override_settings(
@@ -1321,3 +1356,23 @@ class CountrySpecificLanguageTests(TransRealMixin, TestCase):
         r.META = {'HTTP_ACCEPT_LANGUAGE': 'pt-pt,en-US;q=0.8,en;q=0.6,ru;q=0.4'}
         lang = get_language_from_request(r)
         self.assertEqual('pt-br', lang)
+
+
+class ModelTranslationTests(TransRealMixin, TestCase):
+
+    def test_activate_sets_content_language(self):
+        activate('de')
+        self.assertEqual(get_language(), 'de')
+        self.assertEqual(get_content_language(), 'de')
+        activate('en')
+        self.assertEqual(get_language(), 'en')
+        self.assertEqual(get_content_language(), 'en')
+
+    def test_content_language_override(self):
+        """Checks that models can be in a different language than the current
+        active language. This allows content to be translated without changing
+        the user interface language."""
+        activate('de')
+        activate_content('en')
+        self.assertEqual(get_language(), 'de')
+        self.assertEqual(get_content_language(), 'en')

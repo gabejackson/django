@@ -142,6 +142,10 @@ def activate(language):
     return _trans.activate(language)
 
 
+def activate_content(language):
+    return _trans.activate_content(language)
+
+
 def deactivate():
     return _trans.deactivate()
 
@@ -169,6 +173,10 @@ def get_language():
     return _trans.get_language()
 
 
+def get_content_language():
+    return _trans.get_content_language()
+
+
 def get_language_bidi():
     return _trans.get_language_bidi()
 
@@ -183,6 +191,10 @@ def to_locale(language):
 
 def get_language_from_request(request, check_path=False):
     return _trans.get_language_from_request(request, check_path)
+
+
+def get_content_language_from_request(request, check_path=False):
+    return _trans.get_content_language_from_request(request, check_path)
 
 
 def get_language_from_path(path, supported=None):

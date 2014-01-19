@@ -214,6 +214,16 @@ def activate(language):
         warnings.warn(msg % (language, _DJANGO_DEPRECATED_LOCALES[language]),
                       PendingDeprecationWarning, stacklevel=2)
     _active.value = translation(language)
+    activate_content(language)
+
+
+def activate_content(language):
+    from django.conf import settings
+    supported = OrderedDict(settings.LANGUAGES)
+    if language in supported:
+        _active.content_value = language
+    else:
+        _active.content_value = get_supported_language_variant(language)
 
 
 def deactivate():
@@ -245,6 +255,13 @@ def get_language():
     # If we don't have a real translation object, assume it's the default language.
     from django.conf import settings
     return settings.LANGUAGE_CODE
+
+
+def get_content_language():
+    t = getattr(_active, "content_value", None)
+    if t is not None:
+        return t
+    return get_language()
 
 
 def get_language_bidi():
@@ -519,6 +536,21 @@ def get_language_from_request(request, check_path=False):
         return get_supported_language_variant(settings.LANGUAGE_CODE, supported)
     except LookupError:
         return settings.LANGUAGE_CODE
+
+
+def get_content_language_from_request(request, check_path=False):
+    """
+    Sets the language of model translations based on the `content_lang`
+    GET parameter. This enables model data to be displayed in one language and
+    the interface in another.
+    """
+    from django.conf import settings
+    supported = OrderedDict(settings.LANGUAGES)
+    lang_code = request.GET.get('content_lang', None)
+    if lang_code:
+        if lang_code in supported and lang_code is not None:
+            return lang_code
+    return get_language_from_request(request, check_path)
 
 dot_re = re.compile(r'\S')
 
