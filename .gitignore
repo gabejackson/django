@@ -9,5 +9,3 @@ docs/locale/
 tests/coverage_html/
 tests/.coverage
 build/
-.idea
-custom_settings.py
