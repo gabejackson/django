@@ -408,13 +408,13 @@ class F(CombinableMixin):
         return refs_aggregate(self.name.split(LOOKUP_SEP), existing_aggregates)
 
 
-class ModelAnnotation(F):
+class ValueAnnotation(F):
     def __init__(self, name, join_condition=None):
         """
         Arguments:
          * name: the name of the field this expression references
         """
-        super(ModelAnnotation, self).__init__(name=name)
+        super(ValueAnnotation, self).__init__(name=name)
         self.join_condition = join_condition
 
     def setup_cols(self, query, reuse):
@@ -425,7 +425,6 @@ class ModelAnnotation(F):
             self.col = query.annotation_select[self.name]
         else:
             try:
-                #import ipdb; ipdb.set_trace()
                 field, sources, opts, join_list, path = query.setup_joins(
                     field_list, query.get_meta(),
                     query.get_initial_alias(), reuse, join_conditions=self.join_condition)

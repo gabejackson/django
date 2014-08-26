@@ -476,7 +476,7 @@ class Query(object):
         # Now, add the joins from rhs query into the new query (skipping base
         # table).
         for alias in rhs.tables[1:]:
-            table, _, join_type, lhs, join_cols, nullable, join_field = rhs.alias_map[alias]
+            table, _, join_type, lhs, join_cols, nullable, join_field, join_condition = rhs.alias_map[alias]
             # If the left side of the join was already relabeled, use the
             # updated alias.
             lhs = change_map.get(lhs, lhs)
@@ -1428,9 +1428,6 @@ class Query(object):
         # First, generate the path for the names
         path, final_field, targets, rest = self.names_to_path(
             names, opts, allow_many, fail_on_missing=True)
-
-        #if 'specialprice' in names:
-        #    import ipdb; ipdb.set_trace()
 
         # Then, add the path to the query's joins. Note that we can't trim
         # joins at this stage - we will need the information about join type

@@ -524,8 +524,6 @@ class SQLCompiler(object):
                 # alias_map if they aren't in a join. That's OK. We skip them.
                 continue
             alias_str = '' if alias == name else (' %s' % alias)
-            #if join_type == 'LEFT OUTER JOIN':
-            #    import ipdb; ipdb.set_trace()
             if join_type and not first:
                 extra_cond = join_field.get_extra_restriction(
                     self.query.where_class, alias, lhs)
@@ -543,11 +541,12 @@ class SQLCompiler(object):
                     result.append('%s.%s = %s.%s' %
                     (qn(lhs), qn2(lhs_col), qn(alias), qn2(rhs_col)))
                 if join_condition:
-                    #import ipdb; ipdb.set_trace()
-                    where_node = self.query.build_filter(join_condition.children[0])[0]
-                    query_params = where_node.as_sql(qn, self.connection)
-                    s, l = query_params
-                    result.append('AND '+s % tuple(l))
+                    for child in join_condition.children:
+                        where_node = self.query.build_filter(child)[0]
+                        join_sql, join_params = self.compile(where_node)
+                        join_sql = '%s %s' % (where_node.connector, join_sql)
+                        from_params.extend(join_params)
+                        result.append(join_sql)
                 result.append('%s)' % extra_sql)
             else:
                 connector = '' if first else ', '
