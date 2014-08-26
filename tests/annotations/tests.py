@@ -1,15 +1,19 @@
 from __future__ import unicode_literals
 import datetime
 from decimal import Decimal
+from operator import attrgetter
+from django.db import connection
 
 from django.db.models import (
     Sum, Count,
     F, Value, Func,
-    IntegerField, BooleanField, CharField, DecimalField)
+    IntegerField, BooleanField, CharField, DecimalField, Q)
+from django.db.models.expressions import ModelAnnotation
 from django.db.models.fields import FieldDoesNotExist
 from django.test import TestCase
+import unittest
 
-from .models import Author, Publisher, Book, Store, DepartmentStore, Company, Employee  # NOQA
+from .models import Author, Publisher, Book, Store, DepartmentStore, Company, Employee, ShopUser, SpecialPrice, Product  # NOQA
 
 
 class NonAggregateAnnotationTestCase(TestCase):
@@ -263,3 +267,56 @@ class NonAggregateAnnotationTestCase(TestCase):
         )
 
         Company.objects.all().delete()
+
+
+@unittest.skipUnless(connection.vendor == 'postgresql', 'PostgreSQL required')
+class ProductTestCase(TestCase):
+    def setUp(self):
+        self.u1 = ShopUser.objects.create(username='tom')
+        self.u2 = ShopUser.objects.create(username='brad')
+
+        self.p1 = Product.objects.create(name='Sunflower', price=Decimal('9.99'))
+        self.p2 = Product.objects.create(name='Flowers', price=Decimal('11.99'))
+        self.p3 = Product.objects.create(name='Shrub', price=Decimal('31.99'))
+        self.p4 = Product.objects.create(name='Bonsai', price=Decimal('121.99'))
+
+        self.sp1 = SpecialPrice.objects.create(product=self.p2, user=self.u1, price=Decimal('8.00'))
+        self.sp2 = SpecialPrice.objects.create(product=self.p3, user=self.u1, price=Decimal('30.00'))
+
+        self.sp3 = SpecialPrice.objects.create(product=self.p2, user=self.u2, price=Decimal('9.00'))
+
+    def test_sort_products_price(self):
+        self.assertQuerysetEqual(
+            Product.objects.all().order_by('price'), [
+                'Sunflower',
+                'Flowers',
+                'Shrub',
+                'Bonsai',
+            ],
+            attrgetter('name')
+        )
+
+    def test_sort_products_special_price_for_user(self):
+        # PostgreSQL-specific note: The GREATEST and LEAST functions select the largest or smallest value from a list of
+        # any number of expressions. The expressions must all be convertible to a common data type, which will be the
+        # type of the result (see Section 10.5 for details). NULL values in the list are ignored. The result will be
+        # NULL only if all the expressions evaluate to NULL.
+        # Note that GREATEST and LEAST are not in the SQL standard, but are a common extension.
+        # Some other databases make them return NULL if any argument is NULL, rather than only when all are NULL.
+        qs = Product.objects.annotate(
+            best_price=Func(
+                F('price'),
+                ModelAnnotation('specialprice__price', Q(specialprice__user=self.u1)),
+                function='LEAST'
+            )
+        ).order_by('best_price')
+
+        self.assertQuerysetEqual(
+            qs, [
+                'Flowers',
+                'Sunflower',
+                'Shrub',
+                'Bonsai',
+            ],
+            attrgetter('name')
+        )
