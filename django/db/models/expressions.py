@@ -411,6 +411,43 @@ class F(ExpressionNode):
         return clone
 
 
+class ModelAnnotation(F):
+    def __init__(self, name, join_condition=None):
+        """
+        Arguments:
+         * name: the name of the field this expression references
+        """
+        super(ModelAnnotation, self).__init__(name=name)
+        self.join_condition = join_condition
+
+    def setup_cols(self, query, reuse):
+        if query is None:
+            return
+        field_list = self.name.split(LOOKUP_SEP)
+        if self.name in query.annotations:
+            self.col = query.annotation_select[self.name]
+        else:
+            try:
+                #import ipdb; ipdb.set_trace()
+                field, sources, opts, join_list, path = query.setup_joins(
+                    field_list, query.get_meta(),
+                    query.get_initial_alias(), reuse, join_conditions=self.join_condition)
+                self._used_joins = join_list
+                targets, _, join_list = query.trim_joins(sources, join_list, path)
+                if len(targets) > 1:
+                    raise FieldError("Referencing multicolumn fields in expressions "
+                                     "isn't supported")
+                if reuse is not None:
+                    reuse.update(join_list)
+                assert self.source is None
+                self.source = sources[0]
+                self.col = Col(join_list[-1], targets[0], sources[0])
+            except fields.FieldDoesNotExist:
+                raise FieldError("Cannot resolve keyword %r into field. "
+                                 "Choices are: %s" % (self.name,
+                                                      [f.name for f in self.opts.fields]))
+
+
 class Func(ExpressionNode):
     """
     A SQL function call.
