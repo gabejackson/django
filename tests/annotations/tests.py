@@ -286,6 +286,8 @@ class ProductTestCase(TestCase):
         self.sp3 = SpecialPrice.objects.create(product=self.p2, user=self.u2, price=Decimal('9.00'))
 
     def test_sort_products_special_price_for_user(self):
+        # Sorts the products according to their special price given a specific user for the join condition.
+        #
         # PostgreSQL-specific note: The GREATEST and LEAST functions select the largest or smallest value from a list of
         # any number of expressions. The expressions must all be convertible to a common data type, which will be the
         # type of the result (see Section 10.5 for details). NULL values in the list are ignored. The result will be
