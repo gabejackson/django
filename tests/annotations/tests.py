@@ -1,16 +1,22 @@
 from __future__ import unicode_literals
 import datetime
 from decimal import Decimal
+from operator import attrgetter
+from django.db import connection
 
 from django.core.exceptions import FieldError
 from django.db.models import (
     Sum, Count,
     F, Value, Func,
-    IntegerField, BooleanField, CharField)
+    IntegerField, BooleanField, CharField, Q)
+from django.db.models.expressions import ValueAnnotation
 from django.db.models.fields import FieldDoesNotExist
 from django.test import TestCase
+import unittest
+from django.utils import timezone
 
-from .models import Author, Book, Store, DepartmentStore, Company, Employee
+from .models import Author, Book, Store, DepartmentStore, Company, Employee, ShopUser, SpecialPrice, Product, Article, \
+    ArticleTranslation
 
 
 class NonAggregateAnnotationTestCase(TestCase):
@@ -285,4 +291,139 @@ class NonAggregateAnnotationTestCase(TestCase):
                 ('Yahoo', 'Internet Company'.lower())
             ],
             lambda c: (c.name, c.tagline_lower)
+        )
+
+
+@unittest.skipUnless(connection.vendor == 'postgresql', 'PostgreSQL required')
+class ProductTestCase(TestCase):
+    def setUp(self):
+        self.u1 = ShopUser.objects.create(username='tom')
+        self.u2 = ShopUser.objects.create(username='brad')
+
+        self.p1 = Product.objects.create(name='Sunflower', price=Decimal('9.99'))
+        self.p2 = Product.objects.create(name='Flowers', price=Decimal('11.99'))
+        self.p3 = Product.objects.create(name='Shrub', price=Decimal('31.99'))
+        self.p4 = Product.objects.create(name='Bonsai', price=Decimal('121.99'))
+
+        # Special prices for user u1
+        self.sp1 = SpecialPrice.objects.create(
+            product=self.p2, user=self.u1, price=Decimal('8.00'),
+            valid_from=timezone.now(), valid_until=timezone.now()+datetime.timedelta(days=1)
+        )
+        self.sp2 = SpecialPrice.objects.create(
+            product=self.p3, user=self.u1, price=Decimal('30.00'),
+            valid_from=timezone.now(), valid_until=timezone.now()+datetime.timedelta(days=1)
+        )
+
+        # Special prices for user u2
+        self.sp3 = SpecialPrice.objects.create(
+            product=self.p2, user=self.u2, price=Decimal('9.00'),
+            valid_from=timezone.now(), valid_until=timezone.now()+datetime.timedelta(days=1)
+        )
+
+    def test_sort_products_special_price_for_user(self):
+        # Sorts the products according to their special price given a specific user for the join condition.
+        #
+        # PostgreSQL-specific note: The GREATEST and LEAST functions select the largest or smallest value from a list of
+        # any number of expressions. The expressions must all be convertible to a common data type, which will be the
+        # type of the result (see Section 10.5 for details). NULL values in the list are ignored. The result will be
+        # NULL only if all the expressions evaluate to NULL.
+        # Note that GREATEST and LEAST are not in the SQL standard, but are a common extension.
+        # Some other databases make them return NULL if any argument is NULL, rather than only when all are NULL.
+        qs = Product.objects.annotate(
+            best_price=Func(
+                F('price'),
+                ValueAnnotation('specialprice__price', Q(specialprice__user=self.u1)),
+                function='LEAST'
+            )
+        ).order_by('best_price')
+
+        self.assertQuerysetEqual(
+            qs, [
+                'Flowers',
+                'Sunflower',
+                'Shrub',
+                'Bonsai',
+            ],
+            attrgetter('name')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                Decimal('8.00'),
+                Decimal('9.99'),
+                Decimal('30.00'),
+                Decimal('121.99'),
+            ],
+            attrgetter('best_price')
+        )
+
+    def test_multiple_join_conditions(self):
+        current_time = timezone.now()+datetime.timedelta(hours=12)
+        qs = Product.objects.annotate(
+            best_price=Func(
+                F('price'),
+                ValueAnnotation(
+                    'specialprice__price',
+                    Q(specialprice__user=self.u1) &
+                    Q(specialprice__valid_from__lte=current_time) &
+                    Q(specialprice__valid_until__gte=current_time)
+                ),
+                function='LEAST'
+            )
+        ).order_by('best_price')
+
+        self.assertQuerysetEqual(
+            qs, [
+                'Flowers',
+                'Sunflower',
+                'Shrub',
+                'Bonsai',
+            ],
+            attrgetter('name')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                Decimal('8.00'),
+                Decimal('9.99'),
+                Decimal('30.00'),
+                Decimal('121.99'),
+            ],
+            attrgetter('best_price')
+        )
+
+
+class ModelTranslationTestCase(TestCase):
+    def setUp(self):
+        self.a1 = Article.objects.create()
+        self.a1_de = ArticleTranslation.objects.create(article=self.a1, lang='de', text='hallo', text2='zusammen')
+        self.a1_en = ArticleTranslation.objects.create(article=self.a1, lang='en', text='hello', text2='all')
+
+        self.a2 = Article.objects.create()
+        self.a2_de = ArticleTranslation.objects.create(article=self.a2, lang='de', text='guten', text2='abend')
+        self.a2_en = ArticleTranslation.objects.create(article=self.a2, lang='en', text='good', text2='evening')
+
+    def test_language_data_is_loaded(self):
+        qs = Article.objects.annotate(
+            text=ValueAnnotation('articletranslation__text', Q(articletranslation__lang='de')),
+            text2=ValueAnnotation('articletranslation__text2', Q(articletranslation__lang='de')),
+        ).order_by('pk')
+
+        print qs.query
+
+        self.assertQuerysetEqual(
+            qs, [
+                'hallo',
+                'guten',
+            ],
+            attrgetter('text')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                'zusammen',
+                'abend',
+            ],
+            attrgetter('text2')
         )

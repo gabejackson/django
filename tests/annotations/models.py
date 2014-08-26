@@ -84,3 +84,58 @@ class Company(models.Model):
         return ('Company(name=%s, motto=%s, ticker_name=%s, description=%s)'
             % (self.name, self.motto, self.ticker_name, self.description)
         )
+
+
+@python_2_unicode_compatible
+class ShopUser(models.Model):
+    username = models.CharField(max_length=60)
+
+    def __str__(self):
+        return 'ShopUser(username=%s)' % self.username
+
+
+@python_2_unicode_compatible
+class Product(models.Model):
+    name = models.CharField(max_length=100)
+    price = models.DecimalField(decimal_places=2, max_digits=6)
+
+    def __str__(self):
+        return 'Product(name=%s, price=%s)' % (self.name, self.price)
+
+
+@python_2_unicode_compatible
+class SpecialPrice(models.Model):
+    product = models.ForeignKey(Product)
+    user = models.ForeignKey(ShopUser)
+    price = models.DecimalField(decimal_places=2, max_digits=6)
+    valid_from = models.DateTimeField()
+    valid_until = models.DateTimeField()
+
+    def __str__(self):
+        return 'SpecialPrice(price=%s)' % self.price
+
+
+@python_2_unicode_compatible
+class Article(models.Model):
+    date_added = models.DateTimeField(auto_created=True, auto_now=True)
+
+    def __str__(self):
+        return 'Article(date_added=%s)' % self.date_added
+
+
+@python_2_unicode_compatible
+class ArticleTranslation(models.Model):
+    LANGUAGES = (
+        ('de', 'German'),
+        ('en', 'English'),
+    )
+    article = models.ForeignKey(Article)
+    lang = models.CharField(max_length=255, choices=LANGUAGES, default='de')
+    text = models.CharField(max_length=255)
+    text2 = models.CharField(max_length=255)
+
+    class Meta:
+        unique_together = ('article', 'lang')
+
+    def __str__(self):
+        return 'ArticleTranslation(lang=%s, text=%s)' % (self.lang, self.text)

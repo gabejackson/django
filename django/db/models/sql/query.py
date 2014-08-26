@@ -476,7 +476,7 @@ class Query(object):
         # Now, add the joins from rhs query into the new query (skipping base
         # table).
         for alias in rhs.tables[1:]:
-            table, _, join_type, lhs, join_cols, nullable, join_field = rhs.alias_map[alias]
+            table, _, join_type, lhs, join_cols, nullable, join_field, join_condition = rhs.alias_map[alias]
             # If the left side of the join was already relabeled, use the
             # updated alias.
             lhs = change_map.get(lhs, lhs)
@@ -844,7 +844,7 @@ class Query(object):
         """
         return len([1 for count in self.alias_refcount.values() if count])
 
-    def join(self, connection, reuse=None, nullable=False, join_field=None):
+    def join(self, connection, reuse=None, nullable=False, join_field=None, join_condition=None):
         """
         Returns an alias for the join in 'connection', either reusing an
         existing alias for that join or creating a new one. 'connection' is a
@@ -867,6 +867,8 @@ class Query(object):
         is a candidate for promotion (to "left outer") when combining querysets.
 
         The 'join_field' is the field we are joining along (if any).
+
+        Additional join conditions may be given as Q objects via `join_condition`
         """
         lhs, table, join_cols = connection
         assert lhs is None or join_field is not None
@@ -896,7 +898,7 @@ class Query(object):
         else:
             join_type = self.INNER
         join = JoinInfo(table, alias, join_type, lhs, join_cols or ((None, None),), nullable,
-                        join_field)
+                        join_field, join_condition)
         self.alias_map[alias] = join
         if connection in self.join_map:
             self.join_map[connection] += (alias,)
@@ -1421,7 +1423,7 @@ class Query(object):
         raise FieldError("Cannot resolve keyword %r into field. "
                          "Choices are: %s" % (name, ", ".join(available)))
 
-    def setup_joins(self, names, opts, alias, can_reuse=None, allow_many=True):
+    def setup_joins(self, names, opts, alias, can_reuse=None, allow_many=True, join_conditions=None):
         """
         Compute the necessary table joins for the passage through the fields
         given in 'names'. 'opts' is the Options class for the current model
@@ -1454,6 +1456,7 @@ class Query(object):
         # Then, add the path to the query's joins. Note that we can't trim
         # joins at this stage - we will need the information about join type
         # of the trimmed joins.
+        join_condition = join_conditions
         for join in path:
             opts = join.to_opts
             if join.direct:
@@ -1463,7 +1466,7 @@ class Query(object):
             connection = alias, opts.db_table, join.join_field.get_joining_columns()
             reuse = can_reuse if join.m2m else None
             alias = self.join(
-                connection, reuse=reuse, nullable=nullable, join_field=join.join_field)
+                connection, reuse=reuse, nullable=nullable, join_field=join.join_field, join_condition=join_condition)
             joins.append(alias)
         if hasattr(final_field, 'field'):
             final_field = final_field.field

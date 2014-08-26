@@ -408,6 +408,38 @@ class F(CombinableMixin):
         return refs_aggregate(self.name.split(LOOKUP_SEP), existing_aggregates)
 
 
+class ValueAnnotation(F):
+    def __init__(self, name, join_condition=None):
+        """
+        Arguments:
+         * name: the name of the field this expression references
+        """
+        super(ValueAnnotation, self).__init__(name=name)
+        self.join_condition = join_condition
+
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False):
+        name = self.name
+        if name in query.annotations:
+            if summarize:
+                return Ref(name, query.annotation_select[name])
+            else:
+                return query.annotation_select[name]
+        else:
+            field_list = name.split(LOOKUP_SEP)
+            field, sources, opts, join_list, path = query.setup_joins(
+                field_list, query.get_meta(),
+                query.get_initial_alias(), reuse, join_conditions=self.join_condition)
+            targets, _, join_list = query.trim_joins(sources, join_list, path)
+            if len(targets) > 1:
+                raise FieldError("Referencing multicolumn fields with F() objects "
+                                 "isn't supported")
+            if reuse is not None:
+                reuse.update(join_list)
+            col = Col(join_list[-1], targets[0], sources[0])
+            col._used_joins = join_list
+            return col
+
+
 class Func(ExpressionNode):
     """
     A SQL function call.

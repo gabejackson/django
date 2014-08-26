@@ -517,7 +517,7 @@ class SQLCompiler(object):
             if not self.query.alias_refcount[alias]:
                 continue
             try:
-                name, alias, join_type, lhs, join_cols, _, join_field = self.query.alias_map[alias]
+                name, alias, join_type, lhs, join_cols, _, join_field, join_condition = self.query.alias_map[alias]
             except KeyError:
                 # Extra tables can end up in self.tables, but not in the
                 # alias_map if they aren't in a join. That's OK. We skip them.
@@ -539,6 +539,13 @@ class SQLCompiler(object):
                         result.append(' AND ')
                     result.append('%s.%s = %s.%s' %
                     (qn(lhs), qn2(lhs_col), qn(alias), qn2(rhs_col)))
+                if join_condition:
+                    for child in join_condition.children:
+                        where_node = self.query.build_filter(child)[0]
+                        join_sql, join_params = self.compile(where_node)
+                        join_sql = '%s %s' % (where_node.connector, join_sql)
+                        from_params.extend(join_params)
+                        result.append(join_sql)
                 result.append('%s)' % extra_sql)
             else:
                 connector = '' if first else ', '

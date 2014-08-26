@@ -25,7 +25,7 @@ GET_ITERATOR_CHUNK_SIZE = 100
 # dictionary in the Query class).
 JoinInfo = namedtuple('JoinInfo',
                       'table_name rhs_alias join_type lhs_alias '
-                      'join_cols nullable join_field')
+                      'join_cols nullable join_field join_condition')
 
 # Pairs of column clauses to select, and (possibly None) field for the clause.
 SelectInfo = namedtuple('SelectInfo', 'col field')
