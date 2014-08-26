@@ -285,17 +285,6 @@ class ProductTestCase(TestCase):
 
         self.sp3 = SpecialPrice.objects.create(product=self.p2, user=self.u2, price=Decimal('9.00'))
 
-    def test_sort_products_price(self):
-        self.assertQuerysetEqual(
-            Product.objects.all().order_by('price'), [
-                'Sunflower',
-                'Flowers',
-                'Shrub',
-                'Bonsai',
-            ],
-            attrgetter('name')
-        )
-
     def test_sort_products_special_price_for_user(self):
         # PostgreSQL-specific note: The GREATEST and LEAST functions select the largest or smallest value from a list of
         # any number of expressions. The expressions must all be convertible to a common data type, which will be the
