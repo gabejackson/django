@@ -428,7 +428,6 @@ class ModelAnnotation(F):
             self.col = query.annotation_select[self.name]
         else:
             try:
-                #import ipdb; ipdb.set_trace()
                 field, sources, opts, join_list, path = query.setup_joins(
                     field_list, query.get_meta(),
                     query.get_initial_alias(), reuse, join_conditions=self.join_condition)

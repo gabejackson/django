@@ -1448,9 +1448,6 @@ class Query(object):
         path, final_field, targets, rest = self.names_to_path(
             names, opts, allow_many, fail_on_missing=True)
 
-        #if 'specialprice' in names:
-        #    import ipdb; ipdb.set_trace()
-
         # Then, add the path to the query's joins. Note that we can't trim
         # joins at this stage - we will need the information about join type
         # of the trimmed joins.
