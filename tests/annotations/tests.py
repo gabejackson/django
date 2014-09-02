@@ -12,6 +12,7 @@ from django.db.models.expressions import ValueAnnotation
 from django.db.models.fields import FieldDoesNotExist
 from django.test import TestCase
 import unittest
+from django.utils import timezone
 
 from .models import Author, Publisher, Book, Store, DepartmentStore, Company, Employee, ShopUser, SpecialPrice, Product  # NOQA
 
@@ -280,10 +281,21 @@ class ProductTestCase(TestCase):
         self.p3 = Product.objects.create(name='Shrub', price=Decimal('31.99'))
         self.p4 = Product.objects.create(name='Bonsai', price=Decimal('121.99'))
 
-        self.sp1 = SpecialPrice.objects.create(product=self.p2, user=self.u1, price=Decimal('8.00'))
-        self.sp2 = SpecialPrice.objects.create(product=self.p3, user=self.u1, price=Decimal('30.00'))
+        # Special prices for user u1
+        self.sp1 = SpecialPrice.objects.create(
+            product=self.p2, user=self.u1, price=Decimal('8.00'),
+            valid_from=timezone.now(), valid_until=timezone.now()+datetime.timedelta(days=1)
+        )
+        self.sp2 = SpecialPrice.objects.create(
+            product=self.p3, user=self.u1, price=Decimal('30.00'),
+            valid_from=timezone.now(), valid_until=timezone.now()+datetime.timedelta(days=1)
+        )
 
-        self.sp3 = SpecialPrice.objects.create(product=self.p2, user=self.u2, price=Decimal('9.00'))
+        # Special prices for user u2
+        self.sp3 = SpecialPrice.objects.create(
+            product=self.p2, user=self.u2, price=Decimal('9.00'),
+            valid_from=timezone.now(), valid_until=timezone.now()+datetime.timedelta(days=1)
+        )
 
     def test_sort_products_special_price_for_user(self):
         # Sorts the products according to their special price given a specific user for the join condition.
@@ -310,4 +322,50 @@ class ProductTestCase(TestCase):
                 'Bonsai',
             ],
             attrgetter('name')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                Decimal('8.00'),
+                Decimal('9.99'),
+                Decimal('30.00'),
+                Decimal('121.99'),
+            ],
+            attrgetter('best_price')
+        )
+
+    def test_multiple_join_conditions(self):
+        current_time = timezone.now()+datetime.timedelta(hours=12)
+        qs = Product.objects.annotate(
+            best_price=Func(
+                F('price'),
+                ValueAnnotation('specialprice__price',
+                    Q(
+                        specialprice__user=self.u1,
+                        specialprice__valid_from__lte=current_time,
+                        specialprice__valid_until__gte=current_time,
+                    )
+                ),
+                function='LEAST'
+            )
+        ).order_by('best_price')
+
+        self.assertQuerysetEqual(
+            qs, [
+                'Flowers',
+                'Sunflower',
+                'Shrub',
+                'Bonsai',
+            ],
+            attrgetter('name')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                Decimal('8.00'),
+                Decimal('9.99'),
+                Decimal('30.00'),
+                Decimal('121.99'),
+            ],
+            attrgetter('best_price')
         )
