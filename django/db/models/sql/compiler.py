@@ -544,7 +544,7 @@ class SQLCompiler(object):
                     for child in join_condition.children:
                         where_node = self.query.build_filter(child)[0]
                         join_sql, join_params = self.compile(where_node)
-                        join_sql = 'AND %s' % join_sql
+                        join_sql = '%s %s' % (where_node.connector, join_sql)
                         result.append(join_sql % "'"+str(join_params[0])+"'")
                 result.append('%s)' % extra_sql)
             else:

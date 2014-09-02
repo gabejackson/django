@@ -339,12 +339,11 @@ class ProductTestCase(TestCase):
         qs = Product.objects.annotate(
             best_price=Func(
                 F('price'),
-                ValueAnnotation('specialprice__price',
-                    Q(
-                        specialprice__user=self.u1,
-                        specialprice__valid_from__lte=current_time,
-                        specialprice__valid_until__gte=current_time,
-                    )
+                ValueAnnotation(
+                    'specialprice__price',
+                    Q(specialprice__user=self.u1) &
+                    Q(specialprice__valid_from__lte=current_time) &
+                    Q(specialprice__valid_until__gte=current_time)
                 ),
                 function='LEAST'
             )
