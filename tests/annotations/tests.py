@@ -8,7 +8,7 @@ from django.db.models import (
     Sum, Count,
     F, Value, Func,
     IntegerField, BooleanField, CharField, DecimalField, Q)
-from django.db.models.expressions import ModelAnnotation
+from django.db.models.expressions import ValueAnnotation
 from django.db.models.fields import FieldDoesNotExist
 from django.test import TestCase
 import unittest
@@ -297,7 +297,7 @@ class ProductTestCase(TestCase):
         qs = Product.objects.annotate(
             best_price=Func(
                 F('price'),
-                ModelAnnotation('specialprice__price', Q(specialprice__user=self.u1)),
+                ValueAnnotation('specialprice__price', Q(specialprice__user=self.u1)),
                 function='LEAST'
             )
         ).order_by('best_price')

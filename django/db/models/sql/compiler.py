@@ -541,10 +541,11 @@ class SQLCompiler(object):
                     result.append('%s.%s = %s.%s' %
                     (qn(lhs), qn2(lhs_col), qn(alias), qn2(rhs_col)))
                 if join_condition:
-                    where_node = self.query.build_filter(join_condition.children[0])[0]
-                    query_params = where_node.as_sql(qn, self.connection)
-                    s, l = query_params
-                    result.append('AND '+s % tuple(l))
+                    for child in join_condition.children:
+                        where_node = self.query.build_filter(child)[0]
+                        join_sql, join_params = self.compile(where_node)
+                        join_sql = 'AND %s' % join_sql
+                        result.append(join_sql % "'"+str(join_params[0])+"'")
                 result.append('%s)' % extra_sql)
             else:
                 connector = '' if first else ', '

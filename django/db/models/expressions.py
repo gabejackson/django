@@ -411,13 +411,13 @@ class F(ExpressionNode):
         return clone
 
 
-class ModelAnnotation(F):
+class ValueAnnotation(F):
     def __init__(self, name, join_condition=None):
         """
         Arguments:
          * name: the name of the field this expression references
         """
-        super(ModelAnnotation, self).__init__(name=name)
+        super(ValueAnnotation, self).__init__(name=name)
         self.join_condition = join_condition
 
     def setup_cols(self, query, reuse):
