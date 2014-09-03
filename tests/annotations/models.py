@@ -106,8 +106,8 @@ class SpecialPrice(models.Model):
     product = models.ForeignKey(Product)
     user = models.ForeignKey(ShopUser)
     price = models.DecimalField(decimal_places=2, max_digits=6)
-    valid_from = models.DateField()
-    valid_until = models.DateField()
+    valid_from = models.DateTimeField()
+    valid_until = models.DateTimeField()
 
     def __str__(self):
         return 'SpecialPrice(price=%s)' % self.price
