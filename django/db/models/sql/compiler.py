@@ -544,6 +544,7 @@ class SQLCompiler(object):
                         where_node = self.query.build_filter(child)[0]
                         join_sql, join_params = self.compile(where_node)
                         join_sql = '%s %s' % (where_node.connector, join_sql)
+                        join_sql = join_sql.replace(qn(name), alias)
                         from_params.extend(join_params)
                         result.append(join_sql)
                 result.append('%s)' % extra_sql)

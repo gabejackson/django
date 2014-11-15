@@ -884,6 +884,9 @@ class Query(object):
                 # check that the existing join is created using the same
                 # join_field used for the under work join.
                 continue
+            if join_condition and repr(self.alias_map[alias].join_condition) != repr(join_condition):
+                continue
+
             self.ref_alias(alias)
             return alias
 

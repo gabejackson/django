@@ -401,7 +401,7 @@ class ModelTranslationTestCase(TestCase):
         self.a1_en = ArticleTranslation.objects.create(article=self.a1, lang='en', text='hello', text2='all')
 
         self.a2 = Article.objects.create()
-        self.a2_de = ArticleTranslation.objects.create(article=self.a2, lang='de', text='guten', text2='abend')
+        self.a2_de = ArticleTranslation.objects.create(article=self.a2, lang='de', text='guten', text2='')
         self.a2_en = ArticleTranslation.objects.create(article=self.a2, lang='en', text='good', text2='evening')
 
     def test_language_data_is_loaded(self):
@@ -409,8 +409,6 @@ class ModelTranslationTestCase(TestCase):
             text=ValueAnnotation('articletranslation__text', Q(articletranslation__lang='de')),
             text2=ValueAnnotation('articletranslation__text2', Q(articletranslation__lang='de')),
         ).order_by('pk')
-
-        print qs.query
 
         self.assertQuerysetEqual(
             qs, [
@@ -423,7 +421,36 @@ class ModelTranslationTestCase(TestCase):
         self.assertQuerysetEqual(
             qs, [
                 'zusammen',
-                'abend',
+                '',
             ],
             attrgetter('text2')
+        )
+
+    def test_language_fallback(self):
+        qs = Article.objects.annotate(
+            text=ValueAnnotation('articletranslation__text', Q(articletranslation__lang='de')),
+            text2=ValueAnnotation('articletranslation__text2', Q(articletranslation__lang='de')),
+            text2_fb=ValueAnnotation('articletranslation__text2', Q(articletranslation__lang='en')),
+        ).order_by('pk')
+
+        self.assertQuerysetEqual(
+            qs, [
+                'hallo',
+                'guten',
+            ],
+            attrgetter('text')
+        )
+        self.assertQuerysetEqual(
+            qs, [
+                'zusammen',
+                '',
+            ],
+            attrgetter('text2')
+        )
+        self.assertQuerysetEqual(
+            qs, [
+                'all',
+                'evening',
+            ],
+            attrgetter('text2_fb')
         )

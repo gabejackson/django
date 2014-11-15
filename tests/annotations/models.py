@@ -138,4 +138,4 @@ class ArticleTranslation(models.Model):
         unique_together = ('article', 'lang')
 
     def __str__(self):
-        return 'ArticleTranslation(lang=%s, text=%s)' % (self.lang, self.text)
+        return 'ArticleTranslation(lang=%s, text=%s, text2=%s)' % (self.lang, self.text, self.text2)
