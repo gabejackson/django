@@ -113,3 +113,29 @@ class SpecialPrice(models.Model):
 
     def __str__(self):
         return 'SpecialPrice(price=%s)' % self.price
+
+
+@python_2_unicode_compatible
+class Article(models.Model):
+    date_added = models.DateTimeField(auto_created=True, auto_now=True)
+
+    def __str__(self):
+        return 'Article(date_added=%s)' % self.date_added
+
+
+@python_2_unicode_compatible
+class ArticleTranslation(models.Model):
+    LANGUAGES = (
+        ('de', 'German'),
+        ('en', 'English'),
+    )
+    article = models.ForeignKey(Article)
+    lang = models.CharField(max_length=255, choices=LANGUAGES, default='de')
+    text = models.CharField(max_length=255)
+    text2 = models.CharField(max_length=255)
+
+    class Meta:
+        unique_together = ('article', 'lang')
+
+    def __str__(self):
+        return 'ArticleTranslation(lang=%s, text=%s)' % (self.lang, self.text)

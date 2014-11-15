@@ -15,7 +15,8 @@ from django.test import TestCase
 import unittest
 from django.utils import timezone
 
-from .models import Author, Book, Store, DepartmentStore, Company, Employee, ShopUser, SpecialPrice, Product
+from .models import Author, Book, Store, DepartmentStore, Company, Employee, ShopUser, SpecialPrice, Product, Article, \
+    ArticleTranslation
 
 
 class NonAggregateAnnotationTestCase(TestCase):
@@ -390,4 +391,39 @@ class ProductTestCase(TestCase):
                 Decimal('121.99'),
             ],
             attrgetter('best_price')
+        )
+
+
+class ModelTranslationTestCase(TestCase):
+    def setUp(self):
+        self.a1 = Article.objects.create()
+        self.a1_de = ArticleTranslation.objects.create(article=self.a1, lang='de', text='hallo', text2='zusammen')
+        self.a1_en = ArticleTranslation.objects.create(article=self.a1, lang='en', text='hello', text2='all')
+
+        self.a2 = Article.objects.create()
+        self.a2_de = ArticleTranslation.objects.create(article=self.a2, lang='de', text='guten', text2='abend')
+        self.a2_en = ArticleTranslation.objects.create(article=self.a2, lang='en', text='good', text2='evening')
+
+    def test_language_data_is_loaded(self):
+        qs = Article.objects.annotate(
+            text=ValueAnnotation('articletranslation__text', Q(articletranslation__lang='de')),
+            text2=ValueAnnotation('articletranslation__text2', Q(articletranslation__lang='de')),
+        ).order_by('pk')
+
+        print qs.query
+
+        self.assertQuerysetEqual(
+            qs, [
+                'hallo',
+                'guten',
+            ],
+            attrgetter('text')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                'zusammen',
+                'abend',
+            ],
+            attrgetter('text2')
         )
