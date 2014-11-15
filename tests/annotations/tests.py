@@ -347,9 +347,6 @@ class ProductTestCase(TestCase):
             attrgetter('name')
         )
 
-        for x in qs:
-            print x.name, x.price, x.best_price
-            
         self.assertQuerysetEqual(
             qs, [
                 Decimal('8.00'),
