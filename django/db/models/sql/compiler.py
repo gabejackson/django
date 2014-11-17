@@ -38,7 +38,7 @@ class SQLCompiler(object):
         # cleaned. We are not using a clone() of the query here.
         """
         if not self.query.tables:
-            self.query.join((None, self.query.get_meta().db_table, None))
+            self.query.get_initial_alias()
         if (not self.query.select and self.query.default_cols and not
                 self.query.included_inherited_models):
             self.query.setup_inherited_models()

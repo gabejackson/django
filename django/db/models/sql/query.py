@@ -476,10 +476,8 @@ class Query(object):
             join = rhs.alias_map[alias]
             # If the left side of the join was already relabeled, use the
             # updated alias.
-            lhs_alias = change_map.get(join.lhs_alias, join.lhs_alias)
-            new_alias = self.join(
-                (lhs_alias, join.table_name, join.join_cols), reuse=reuse,
-                nullable=join.nullable, join_field=join.join_field)
+            join = join.relabeled_clone(change_map)
+            new_alias = self.join(join, reuse=reuse)
             if join.join_type == INNER:
                 rhs_votes.add(new_alias)
             # We can't reuse the same join again in the query. If we have two
@@ -694,7 +692,7 @@ class Query(object):
                 continue
             # Only the first alias (skipped above) should have None join_type
             assert self.alias_map[alias].join_type is not None
-            parent_alias = self.alias_map[alias].lhs_alias
+            parent_alias = self.alias_map[alias].parent_alias
             parent_louter = (
                 parent_alias
                 and self.alias_map[parent_alias].join_type == LOUTER)
@@ -706,7 +704,7 @@ class Query(object):
                 # refer to this one.
                 aliases.extend(
                     join for join in self.alias_map.keys()
-                    if (self.alias_map[join].lhs_alias == alias
+                    if (self.alias_map[join].parent_alias == alias
                         and join not in aliases))
 
     def demote_joins(self, aliases):
@@ -724,7 +722,7 @@ class Query(object):
             alias = aliases.pop(0)
             if self.alias_map[alias].join_type == LOUTER:
                 self.alias_map[alias] = self.alias_map[alias].demote()
-                parent_alias = self.alias_map[alias].lhs_alias
+                parent_alias = self.alias_map[alias].parent_alias
                 if self.alias_map[parent_alias].join_type == INNER:
                     aliases.append(parent_alias)
 
@@ -790,13 +788,6 @@ class Query(object):
             if alias in change_map:
                 self.included_inherited_models[key] = change_map[alias]
 
-        # 3. Update any joins that refer to the old alias.
-        for alias, data in six.iteritems(self.alias_map):
-            lhs = data.lhs_alias
-            if lhs in change_map:
-                data = data._replace(lhs_alias=change_map[lhs])
-                self.alias_map[alias] = data
-
     def bump_prefix(self, outer_query):
         """
         Changes the alias prefix to the next letter in the alphabet in a way
@@ -829,7 +820,7 @@ class Query(object):
             alias = self.tables[0]
             self.ref_alias(alias)
         else:
-            alias = self.join((None, self.get_meta().db_table, None))
+            alias = self.join(BaseTable(self.get_meta().db_table, None))
         return alias
 
     def count_active_tables(self):
@@ -840,7 +831,7 @@ class Query(object):
         """
         return len([1 for count in self.alias_refcount.values() if count])
 
-    def join(self, connection, reuse=None, nullable=False, join_field=None):
+    def join(self, join, reuse=None):
         """
         Returns an alias for the join in 'connection', either reusing an
         existing alias for that join or creating a new one. 'connection' is a
@@ -864,41 +855,22 @@ class Query(object):
 
         The 'join_field' is the field we are joining along (if any).
         """
-        lhs, table, join_cols = connection
-        assert lhs is None or join_field is not None
-        existing = self.join_map.get(connection, ())
-        if reuse is None:
-            reuse = existing
-        else:
-            reuse = [a for a in existing if a in reuse]
-        for alias in reuse:
-            if join_field and self.alias_map[alias].join_field != join_field:
-                # The join_map doesn't contain join_field (mainly because
-                # fields in Query structs are problematic in pickling), so
-                # check that the existing join is created using the same
-                # join_field used for the under work join.
-                continue
-            self.ref_alias(alias)
-            return alias
+        reuse = [a for a, j in self.alias_map.items()
+                 if (reuse is None or a in reuse) and j == join]
+        if reuse:
+            self.ref_alias(reuse[0])
+            return reuse[0]
 
         # No reuse is possible, so we need a new alias.
-        alias, _ = self.table_alias(table, create=True)
-        if not lhs:
-            # Not all tables need to be joined to anything. No join type
-            # means the later columns are ignored.
-            join = BaseTable(table, alias)
-        else:
-            if self.alias_map[lhs].join_type == LOUTER or nullable:
+        alias, _ = self.table_alias(join.table_name, create=True)
+        if join.join_type:
+            if self.alias_map[join.parent_alias].join_type == LOUTER or join.nullable:
                 join_type = LOUTER
             else:
                 join_type = INNER
-            join = Join(table, alias, lhs, join_type, join_cols,
-                        join_field, nullable)
+            join.join_type = join_type
+        join.table_alias = alias
         self.alias_map[alias] = join
-        if connection in self.join_map:
-            self.join_map[connection] += (alias,)
-        else:
-            self.join_map[connection] = (alias,)
         return alias
 
     def setup_inherited_models(self):
@@ -1457,10 +1429,9 @@ class Query(object):
                 nullable = self.is_nullable(join.join_field)
             else:
                 nullable = True
-            connection = alias, opts.db_table, join.join_field.get_joining_columns()
+            connection = Join(opts.db_table, alias, None, INNER, join.join_field, nullable)
             reuse = can_reuse if join.m2m else None
-            alias = self.join(
-                connection, reuse=reuse, nullable=nullable, join_field=join.join_field)
+            alias = self.join(connection, reuse=reuse)
             joins.append(alias)
         if hasattr(final_field, 'field'):
             final_field = final_field.field

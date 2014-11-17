@@ -344,7 +344,7 @@ class Queries1Tests(BaseQuerysetTest):
         # involve one "left outer" join (Author -> Item is 0-to-many).
         qs = Author.objects.filter(id=self.a1.id).filter(Q(extra__note=self.n1) | Q(item__note=self.n3))
         self.assertEqual(
-            len([x for x in qs.query.alias_map.values() if x.join_type == LOUTER and qs.query.alias_refcount[x.rhs_alias]]),
+            len([x for x in qs.query.alias_map.values() if x.join_type == LOUTER and qs.query.alias_refcount[x.table_alias]]),
             1
         )
 
@@ -855,7 +855,7 @@ class Queries1Tests(BaseQuerysetTest):
         )
         q = Note.objects.filter(Q(extrainfo__author=self.a1) | Q(extrainfo=xx)).query
         self.assertEqual(
-            len([x for x in q.alias_map.values() if x.join_type == LOUTER and q.alias_refcount[x.rhs_alias]]),
+            len([x for x in q.alias_map.values() if x.join_type == LOUTER and q.alias_refcount[x.table_alias]]),
             1
         )
 
