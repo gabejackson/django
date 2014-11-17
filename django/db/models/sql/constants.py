@@ -41,3 +41,8 @@ ORDER_DIR = {
     'ASC': ('ASC', 'DESC'),
     'DESC': ('DESC', 'ASC'),
 }
+
+# SQL join types. These are part of the class because their string forms
+# vary from database to database and can be customised by a subclass.
+INNER = 'INNER JOIN'
+LOUTER = 'LEFT OUTER JOIN'

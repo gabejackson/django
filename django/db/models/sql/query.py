@@ -20,8 +20,9 @@ from django.db.models.query_utils import Q, refs_aggregate
 from django.db.models.related import PathInfo
 from django.db.models.aggregates import Count
 from django.db.models.sql.constants import (QUERY_TERMS, ORDER_DIR, SINGLE,
-        ORDER_PATTERN, JoinInfo, SelectInfo)
-from django.db.models.sql.datastructures import EmptyResultSet, Empty, MultiJoin
+        ORDER_PATTERN, SelectInfo, INNER, LOUTER)
+from django.db.models.sql.datastructures import (
+    EmptyResultSet, Empty, MultiJoin, Join, BaseTable)
 from django.db.models.sql.where import (WhereNode, Constraint, EverythingNode,
     ExtraWhere, AND, OR, EmptyWhere)
 from django.utils import six
@@ -87,10 +88,6 @@ class Query(object):
     """
     A single SQL query.
     """
-    # SQL join types. These are part of the class because their string forms
-    # vary from database to database and can be customised by a subclass.
-    INNER = 'INNER JOIN'
-    LOUTER = 'LEFT OUTER JOIN'
 
     alias_prefix = 'T'
     subq_aliases = frozenset([alias_prefix])
@@ -471,19 +468,19 @@ class Query(object):
         self.get_initial_alias()
         joinpromoter = JoinPromoter(connector, 2, False)
         joinpromoter.add_votes(
-            j for j in self.alias_map if self.alias_map[j].join_type == self.INNER)
+            j for j in self.alias_map if self.alias_map[j].join_type == INNER)
         rhs_votes = set()
         # Now, add the joins from rhs query into the new query (skipping base
         # table).
         for alias in rhs.tables[1:]:
-            table, _, join_type, lhs, join_cols, nullable, join_field = rhs.alias_map[alias]
+            join = rhs.alias_map[alias]
             # If the left side of the join was already relabeled, use the
             # updated alias.
-            lhs = change_map.get(lhs, lhs)
+            lhs_alias = change_map.get(join.lhs_alias, join.lhs_alias)
             new_alias = self.join(
-                (lhs, table, join_cols), reuse=reuse,
-                nullable=nullable, join_field=join_field)
-            if join_type == self.INNER:
+                (lhs_alias, join.table_name, join.join_cols), reuse=reuse,
+                nullable=join.nullable, join_field=join.join_field)
+            if join.join_type == INNER:
                 rhs_votes.add(new_alias)
             # We can't reuse the same join again in the query. If we have two
             # distinct joins for the same connection in rhs query, then the
@@ -690,7 +687,7 @@ class Query(object):
         aliases = list(aliases)
         while aliases:
             alias = aliases.pop(0)
-            if self.alias_map[alias].join_cols[0][1] is None:
+            if self.alias_map[alias].join_type is None:
                 # This is the base table (first FROM entry) - this table
                 # isn't really joined at all in the query, so we should not
                 # alter its join type.
@@ -700,12 +697,11 @@ class Query(object):
             parent_alias = self.alias_map[alias].lhs_alias
             parent_louter = (
                 parent_alias
-                and self.alias_map[parent_alias].join_type == self.LOUTER)
-            already_louter = self.alias_map[alias].join_type == self.LOUTER
+                and self.alias_map[parent_alias].join_type == LOUTER)
+            already_louter = self.alias_map[alias].join_type == LOUTER
             if ((self.alias_map[alias].nullable or parent_louter) and
                     not already_louter):
-                data = self.alias_map[alias]._replace(join_type=self.LOUTER)
-                self.alias_map[alias] = data
+                self.alias_map[alias] = self.alias_map[alias].promote()
                 # Join type of 'alias' changed, so re-examine all aliases that
                 # refer to this one.
                 aliases.extend(
@@ -726,10 +722,10 @@ class Query(object):
         aliases = list(aliases)
         while aliases:
             alias = aliases.pop(0)
-            if self.alias_map[alias].join_type == self.LOUTER:
-                self.alias_map[alias] = self.alias_map[alias]._replace(join_type=self.INNER)
+            if self.alias_map[alias].join_type == LOUTER:
+                self.alias_map[alias] = self.alias_map[alias].demote()
                 parent_alias = self.alias_map[alias].lhs_alias
-                if self.alias_map[parent_alias].join_type == self.INNER:
+                if self.alias_map[parent_alias].join_type == INNER:
                     aliases.append(parent_alias)
 
     def reset_refcounts(self, to_counts):
@@ -775,7 +771,7 @@ class Query(object):
             self.join_map[ident] = aliases
         for old_alias, new_alias in six.iteritems(change_map):
             alias_data = self.alias_map[old_alias]
-            alias_data = alias_data._replace(rhs_alias=new_alias)
+            alias_data = alias_data.relabeled_clone(change_map)
             self.alias_refcount[new_alias] = self.alias_refcount[old_alias]
             del self.alias_refcount[old_alias]
             self.alias_map[new_alias] = alias_data
@@ -890,13 +886,14 @@ class Query(object):
         if not lhs:
             # Not all tables need to be joined to anything. No join type
             # means the later columns are ignored.
-            join_type = None
-        elif self.alias_map[lhs].join_type == self.LOUTER or nullable:
-            join_type = self.LOUTER
+            join = BaseTable(table, alias)
         else:
-            join_type = self.INNER
-        join = JoinInfo(table, alias, join_type, lhs, join_cols or ((None, None),), nullable,
-                        join_field)
+            if self.alias_map[lhs].join_type == LOUTER or nullable:
+                join_type = LOUTER
+            else:
+                join_type = INNER
+            join = Join(table, alias, lhs, join_type, join_cols,
+                        join_field, nullable)
         self.alias_map[alias] = join
         if connection in self.join_map:
             self.join_map[connection] += (alias,)
@@ -1219,7 +1216,7 @@ class Query(object):
             require_outer = True
             if (lookup_type != 'isnull' and (
                     self.is_nullable(targets[0]) or
-                    self.alias_map[join_list[-1]].join_type == self.LOUTER)):
+                    self.alias_map[join_list[-1]].join_type == LOUTER)):
                 # The condition added here will be SQL like this:
                 # NOT (col IS NOT NULL), where the first NOT is added in
                 # upper layers of code. The reason for addition is that if col
@@ -1296,7 +1293,7 @@ class Query(object):
         # rel_a doesn't produce any rows, then the whole condition must fail.
         # So, demotion is OK.
         existing_inner = set(
-            (a for a in self.alias_map if self.alias_map[a].join_type == self.INNER))
+            (a for a in self.alias_map if self.alias_map[a].join_type == INNER))
         clause, require_inner = self._add_q(where_part, self.used_aliases)
         self.where.add(clause, AND)
         for hp in having_parts:
@@ -2002,9 +1999,10 @@ class Query(object):
         for trimmed_paths, path in enumerate(all_paths):
             if path.m2m:
                 break
-            if self.alias_map[lookup_tables[trimmed_paths + 1]].join_type == self.LOUTER:
+            if self.alias_map[lookup_tables[trimmed_paths + 1]].join_type == LOUTER:
                 contains_louter = True
-            self.unref_alias(lookup_tables[trimmed_paths])
+            alias = lookup_tables[trimmed_paths]
+            self.unref_alias(alias)
         # The path.join_field is a Rel, lets get the other side's field
         join_field = path.join_field.field
         # Build the filter prefix.
@@ -2021,7 +2019,7 @@ class Query(object):
         # Lets still see if we can trim the first join from the inner query
         # (that is, self). We can't do this for LEFT JOINs because we would
         # miss those rows that have nothing on the outer side.
-        if self.alias_map[lookup_tables[trimmed_paths + 1]].join_type != self.LOUTER:
+        if self.alias_map[lookup_tables[trimmed_paths + 1]].join_type != LOUTER:
             select_fields = [r[0] for r in join_field.related_fields]
             select_alias = lookup_tables[trimmed_paths + 1]
             self.unref_alias(lookup_tables[trimmed_paths])
@@ -2035,6 +2033,13 @@ class Query(object):
             # values in select_fields. Lets punt this one for now.
             select_fields = [r[1] for r in join_field.related_fields]
             select_alias = lookup_tables[trimmed_paths]
+        # The found starting point is likely a Join instead of a BaseTable reference.
+        # But the first entry in the query's FROM clause must not be a JOIN.
+        for table in self.tables:
+            if self.alias_refcount[table] > 0:
+                self.alias_map[table] = BaseTable(self.alias_map[table].table_name,
+                                                  table)
+                break
         self.select = [SelectInfo((select_alias, f.column), f) for f in select_fields]
         return trimmed_prefix, contains_louter
 
