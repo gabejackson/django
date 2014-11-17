@@ -2,16 +2,23 @@ from __future__ import unicode_literals
 
 from copy import deepcopy
 import datetime
+from decimal import Decimal
+from operator import attrgetter
+from django.db.models.expressions import Col
+from django.db.models.sql import Query
+from django.utils import timezone
+import unittest
 
 from django.core.exceptions import FieldError
 from django.db import connection
-from django.db.models import F
+from django.db.models import F, Func, QuerySet
 from django.db import transaction
 from django.test import TestCase, skipIfDBFeature, skipUnlessDBFeature
 from django.test.utils import Approximate
 from django.utils import six
 
-from .models import Company, Employee, Number, Experiment
+from .models import Company, Employee, Number, Experiment, ArticleTranslation, \
+    Article, Product, ShopUser, SpecialPrice
 
 
 class ExpressionsTests(TestCase):
@@ -721,31 +728,212 @@ class FTimeDeltaTests(TestCase):
 
 
 from django.db.models.sql.datastructures import Join
-class MyJoinCond(Join):
-    def __init__(self, original_join, cond):
+class MultipleConstraintJoin(Join):
+    def __init__(self, original_join, conditions):
         self.__dict__ = original_join.__dict__
-        self.cond = cond
+        self.conditions = conditions
 
     def get_extra_cond(self, compiler):
-        return " AND (lastname = '%s'", [self.cond.children[0][1]]
+        qs = QuerySet(self.join_field.to).filter(self.conditions)
+        where_node = qs.query.where
+        where_node.relabel_aliases({self.table_name: self.table_alias})
+        sql, params = compiler.compile(where_node)
+        sql = ' AND %s' % sql
+        return sql, params
+
+    def __eq__(self, other):
+        if super(MultipleConstraintJoin, self).__eq__(other):
+            return str(self.conditions) == str(other.conditions)
+        return False
+
 
 from django.db.models import ExpressionNode, Q
-class MyExpr(ExpressionNode):
+class ConditionalJoin(ExpressionNode):
     def join_hook(self, original_join, names, pos, query):
-        paths = query.names_to_path(names, query.get_meta())[0][0:pos+1]
-        matches_paths = query.names_to_path([self.cond.keys()[0]], query.get_meta())[0]
-        if paths == matches_paths:
-            return MyJoinCond(original_join, self.cond['ceo'])
-        return original_join
+        return MultipleConstraintJoin(original_join, self.conditions)
 
-    def __init__(self, path, cond):
+    def __init__(self, path, conditions):
         self.path = path
-        self.cond = cond
-        super(MyExpr, self).__init__()
+        self.conditions = conditions
+        super(ConditionalJoin, self).__init__()
 
     def resolve_expression(self, query, allow_joins=True, reuse=None, summarize=False):
         return query.resolve_ref(self.path, allow_joins, reuse, summarize, join_hook=self.join_hook)
 
-class MyExprTest(TestCase):
-    def test_my_expr(self):
-        print Company.objects.annotate(foo=MyExpr('ceo__lastname', cond={'ceo': Q(lastname='Foo')})).query
+
+class TranslationAnnotationTest(TestCase):
+    def setUp(self):
+        self.a1 = Article.objects.create()
+        self.at1_de = ArticleTranslation(
+            article=self.a1,
+            lang='de',
+            title='Das ist ein Titel',
+            body='Heute wurde publiziert, dass es einen neuen Titel gibt'
+        )
+        self.at1_de.save()
+        self.at1_en = ArticleTranslation(
+            article=self.a1,
+            lang='en',
+            title='This is a title',
+            body='')
+        self.at1_en.save()
+
+        self.a2 = Article.objects.create()
+        self.at1_de = ArticleTranslation(
+            article=self.a2,
+            lang='de',
+            title='Django ist da',
+            body='Die neue Django Version ist da!'
+        )
+        self.at1_de.save()
+        self.at1_en = ArticleTranslation(
+            article=self.a2,
+            lang='en',
+            title='Django is here',
+            body='The new Django version is here!')
+        self.at1_en.save()
+
+    def test_translations_and_fallback(self):
+        # Dynamic run-time fallback population of language fields
+        qs = Article.objects.annotate(
+            title=ConditionalJoin(
+                'articletranslation__title',
+                conditions=Q(articletranslation__lang='en')
+            ),
+            body=ConditionalJoin(
+                'articletranslation__body',
+                conditions=Q(articletranslation__lang='en')
+            )
+        ).annotate(
+            title_de=ConditionalJoin(
+                'articletranslation__title',
+                conditions=Q(articletranslation__lang='de')
+            )
+        ).order_by('pk')
+
+        self.assertQuerysetEqual(
+            qs, [
+                'This is a title',
+                'Django is here',
+            ],
+            attrgetter('title')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                '',
+                'The new Django version is here!',
+            ],
+            attrgetter('body')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                'Das ist ein Titel',
+                'Django ist da',
+            ],
+            attrgetter('title_de')
+        )
+
+
+@unittest.skipUnless(connection.vendor == 'postgresql', 'PostgreSQL required')
+class ProductTestCase(TestCase):
+    def setUp(self):
+        self.u1 = ShopUser.objects.create(username='tom')
+        self.u2 = ShopUser.objects.create(username='brad')
+
+        self.p1 = Product.objects.create(name='Sunflower', price=Decimal('9.99'))
+        self.p2 = Product.objects.create(name='Flowers', price=Decimal('11.99'))
+        self.p3 = Product.objects.create(name='Shrub', price=Decimal('31.99'))
+        self.p4 = Product.objects.create(name='Bonsai', price=Decimal('121.99'))
+
+        # Special prices for user u1
+        self.sp1 = SpecialPrice.objects.create(
+            product=self.p2, user=self.u1, price=Decimal('8.00'),
+            valid_from=timezone.now(), valid_until=timezone.now()+datetime.timedelta(days=1)
+        )
+        self.sp2 = SpecialPrice.objects.create(
+            product=self.p3, user=self.u1, price=Decimal('30.00'),
+            valid_from=timezone.now(), valid_until=timezone.now()+datetime.timedelta(days=1)
+        )
+
+        # Special prices for user u2
+        self.sp3 = SpecialPrice.objects.create(
+            product=self.p2, user=self.u2, price=Decimal('9.00'),
+            valid_from=timezone.now(), valid_until=timezone.now()+datetime.timedelta(days=1)
+        )
+
+    def test_sort_products_special_price_for_user(self):
+        # Sorts the products according to their special price given a specific user for the join condition.
+        #
+        # PostgreSQL-specific note: The GREATEST and LEAST functions select the largest or smallest value from a list of
+        # any number of expressions. The expressions must all be convertible to a common data type, which will be the
+        # type of the result (see Section 10.5 for details). NULL values in the list are ignored. The result will be
+        # NULL only if all the expressions evaluate to NULL.
+        # Note that GREATEST and LEAST are not in the SQL standard, but are a common extension.
+        # Some other databases make them return NULL if any argument is NULL, rather than only when all are NULL.
+        qs = Product.objects.annotate(
+            best_price=Func(
+                F('price'),
+                ConditionalJoin(
+                    'specialprice__price',
+                    conditions=Q(specialprice__user=self.u1)
+                ),
+                function='LEAST'
+            )
+        ).order_by('best_price')
+
+        self.assertQuerysetEqual(
+            qs, [
+                'Flowers',
+                'Sunflower',
+                'Shrub',
+                'Bonsai',
+            ],
+            attrgetter('name')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                Decimal('8.00'),
+                Decimal('9.99'),
+                Decimal('30.00'),
+                Decimal('121.99'),
+            ],
+            attrgetter('best_price')
+        )
+
+    def test_multiple_join_conditions(self):
+        current_time = timezone.now()+datetime.timedelta(hours=12)
+        qs = Product.objects.annotate(
+            best_price=Func(
+                F('price'),
+                ConditionalJoin(
+                    'specialprice__price',
+                    conditions=Q(specialprice__user=self.u1) &
+                    Q(specialprice__valid_from__lte=current_time) &
+                    Q(specialprice__valid_until__gte=current_time)
+                ),
+                function='LEAST'
+            )
+        ).order_by('best_price')
+
+        self.assertQuerysetEqual(
+            qs, [
+                'Flowers',
+                'Sunflower',
+                'Shrub',
+                'Bonsai',
+            ],
+            attrgetter('name')
+        )
+
+        self.assertQuerysetEqual(
+            qs, [
+                Decimal('8.00'),
+                Decimal('9.99'),
+                Decimal('30.00'),
+                Decimal('121.99'),
+            ],
+            attrgetter('best_price')
+        )
