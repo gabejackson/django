@@ -518,7 +518,7 @@ class SQLCompiler(object):
                 # Extra tables can end up in self.tables, but not in the
                 # alias_map if they aren't in a join. That's OK. We skip them.
                 continue
-            clause_sql, clause_params = from_clause.as_sql(self, self.connection)
+            clause_sql, clause_params = self.compile(from_clause)
             result.append(clause_sql)
             params.extend(clause_params)
         for t in self.query.extra_tables:
