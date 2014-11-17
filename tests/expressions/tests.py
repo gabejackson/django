@@ -718,3 +718,34 @@ class FTimeDeltaTests(TestCase):
         except TypeError:
             raised = True
         self.assertTrue(raised, "TypeError not raised on attempt to binary or a datetime with a timedelta.")
+
+
+from django.db.models.sql.datastructures import Join
+class MyJoinCond(Join):
+    def __init__(self, original_join, cond):
+        self.__dict__ = original_join.__dict__
+        self.cond = cond
+
+    def get_extra_cond(self, compiler):
+        return " AND (lastname = '%s'", [self.cond.children[0][1]]
+
+from django.db.models import ExpressionNode, Q
+class MyExpr(ExpressionNode):
+    def join_hook(self, original_join, names, pos, query):
+        paths = query.names_to_path(names, query.get_meta())[0][0:pos+1]
+        matches_paths = query.names_to_path([self.cond.keys()[0]], query.get_meta())[0]
+        if paths == matches_paths:
+            return MyJoinCond(original_join, self.cond['ceo'])
+        return original_join
+
+    def __init__(self, path, cond):
+        self.path = path
+        self.cond = cond
+        super(MyExpr, self).__init__()
+
+    def resolve_expression(self, query, allow_joins=True, reuse=None, summarize=False):
+        return query.resolve_ref(self.path, allow_joins, reuse, summarize, join_hook=self.join_hook)
+
+class MyExprTest(TestCase):
+    def test_my_expr(self):
+        print Company.objects.annotate(foo=MyExpr('ceo__lastname', cond={'ceo': Q(lastname='Foo')})).query

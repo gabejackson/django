@@ -79,15 +79,21 @@ class Join(object):
                 sql.append(' AND ')
             sql.append('%s.%s = %s.%s' %
                        (qn(self.parent_alias), qn2(lhs_col), qn(self.table_alias), qn2(rhs_col)))
+        extra_sql, extra_params = self.get_extra_cond(compiler)
+        if extra_sql:
+            sql.append(extra_sql)
+            params.extend(extra_params)
+        sql.append(')')
+        return ' '.join(sql), params
+
+    def get_extra_cond(self, compiler):
         extra_cond = self.join_field.get_extra_restriction(
             compiler.query.where_class, self.table_alias, self.parent_alias)
         if extra_cond:
             extra_sql, extra_params = compiler.compile(extra_cond)
-            extra_sql = 'AND (%s)' % extra_sql
-            params.extend(extra_params)
-            sql.append('%s' % extra_sql)
-        sql.append(')')
-        return ' '.join(sql), params
+            extra_sql = ' AND (%s)' % extra_sql
+            return extra_sql, extra_params
+        return '', []
 
     def relabeled_clone(self, change_map):
         new_parent_alias = change_map.get(self.parent_alias, self.parent_alias)

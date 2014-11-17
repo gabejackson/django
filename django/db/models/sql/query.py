@@ -1384,7 +1384,8 @@ class Query(object):
         raise FieldError("Cannot resolve keyword %r into field. "
                          "Choices are: %s" % (name, ", ".join(available)))
 
-    def setup_joins(self, names, opts, alias, can_reuse=None, allow_many=True):
+    def setup_joins(self, names, opts, alias, can_reuse=None, allow_many=True,
+                    join_hook=None):
         """
         Compute the necessary table joins for the passage through the fields
         given in 'names'. 'opts' is the Options class for the current model
@@ -1417,14 +1418,16 @@ class Query(object):
         # Then, add the path to the query's joins. Note that we can't trim
         # joins at this stage - we will need the information about join type
         # of the trimmed joins.
-        for join in path:
+        for pos, join in enumerate(path):
             opts = join.to_opts
             if join.direct:
                 nullable = self.is_nullable(join.join_field)
             else:
                 nullable = True
-            connection = Join(opts.db_table, alias, None, INNER, join.join_field, nullable)
             reuse = can_reuse if join.m2m else None
+            connection = Join(opts.db_table, alias, None, INNER, join.join_field, nullable)
+            if join_hook:
+                connection = join_hook(connection, names, pos, self)
             alias = self.join(connection, reuse=reuse)
             joins.append(alias)
         if hasattr(final_field, 'field'):
@@ -1457,7 +1460,7 @@ class Query(object):
             self.unref_alias(joins.pop())
         return targets, joins[-1], joins
 
-    def resolve_ref(self, name, allow_joins, reuse, summarize):
+    def resolve_ref(self, name, allow_joins, reuse, summarize, join_hook=None):
         if not allow_joins and LOOKUP_SEP in name:
             raise FieldError("Joined field references are not permitted in this query")
         if name in self.annotations:
@@ -1469,7 +1472,7 @@ class Query(object):
             field_list = name.split(LOOKUP_SEP)
             field, sources, opts, join_list, path = self.setup_joins(
                 field_list, self.get_meta(),
-                self.get_initial_alias(), reuse)
+                self.get_initial_alias(), reuse, join_hook=join_hook)
             targets, _, join_list = self.trim_joins(sources, join_list, path)
             if len(targets) > 1:
                 raise FieldError("Referencing multicolumn fields with F() objects "
