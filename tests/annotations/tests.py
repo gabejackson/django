@@ -454,3 +454,34 @@ class ModelTranslationTestCase(TestCase):
             ],
             attrgetter('text2_fb')
         )
+
+    def test_language_fallback_separate_annotations(self):
+        qs = Article.objects.annotate(
+            text=ValueAnnotation('articletranslation__text', Q(articletranslation__lang='de'))
+        ).annotate(
+            text2=ValueAnnotation('articletranslation__text2', Q(articletranslation__lang='de'))
+        ).annotate(
+            text2_fb=ValueAnnotation('articletranslation__text2', Q(articletranslation__lang='en'))
+        ).order_by('pk')
+
+        self.assertQuerysetEqual(
+            qs, [
+                'hallo',
+                'guten',
+            ],
+            attrgetter('text')
+        )
+        self.assertQuerysetEqual(
+            qs, [
+                'zusammen',
+                '',
+            ],
+            attrgetter('text2')
+        )
+        self.assertQuerysetEqual(
+            qs, [
+                'all',
+                'evening',
+            ],
+            attrgetter('text2_fb')
+        )

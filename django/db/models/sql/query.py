@@ -885,6 +885,7 @@ class Query(object):
                 # join_field used for the under work join.
                 continue
             if join_condition and repr(self.alias_map[alias].join_condition) != repr(join_condition):
+                # Do not reuse the join if the extra join condition is different
                 continue
 
             self.ref_alias(alias)
