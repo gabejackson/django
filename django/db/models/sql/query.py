@@ -100,11 +100,11 @@ class Query(object):
         self.alias_refcount = {}
         # alias_map is the most important data structure regarding joins.
         # It's used for recording which joins exist in the query and what
-        # type they are. The key is the alias of the joined table (possibly
-        # the table name) and the value is JoinInfo from constants.py.
+        # types they are. The key is the alias of the joined table (possibly
+        # the table name) and the value is a Join-like object (see
+        # sql.datastructures.Join for more information).
         self.alias_map = {}
         self.table_map = {}     # Maps table names to list of aliases.
-        self.join_map = {}
         self.default_cols = True
         self.default_ordering = True
         self.standard_ordering = True
@@ -238,7 +238,6 @@ class Query(object):
         obj.alias_refcount = self.alias_refcount.copy()
         obj.alias_map = self.alias_map.copy()
         obj.table_map = self.table_map.copy()
-        obj.join_map = self.join_map.copy()
         obj.default_cols = self.default_cols
         obj.default_ordering = self.default_ordering
         obj.standard_ordering = self.standard_ordering
@@ -762,11 +761,6 @@ class Query(object):
                 (key, relabel_column(col)) for key, col in self._annotations.items())
 
         # 2. Rename the alias in the internal table/alias datastructures.
-        for ident, aliases in self.join_map.items():
-            del self.join_map[ident]
-            aliases = tuple(change_map.get(a, a) for a in aliases)
-            ident = (change_map.get(ident[0], ident[0]),) + ident[1:]
-            self.join_map[ident] = aliases
         for old_alias, new_alias in six.iteritems(change_map):
             alias_data = self.alias_map[old_alias]
             alias_data = alias_data.relabeled_clone(change_map)
